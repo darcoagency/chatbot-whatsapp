@@ -1,60 +1,44 @@
-import os
-import requests
 from flask import Flask, request, jsonify
+import openai
+import os
 
 app = Flask(__name__)
 
-# Pegando as variáveis de ambiente do Render
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+# Pegando as chaves de API do ambiente
+openai.api_key = os.getenv("OPENAI_API_KEY")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Rota principal para verificar o webhook do WhatsApp
-@app.route("/webhook", methods=["GET"])
+@app.route("/", methods=["GET"])
 def verify():
+    """Verifica o webhook do WhatsApp."""
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     if token == VERIFY_TOKEN:
         return challenge
     return "Token inválido", 403
 
-# Rota para receber mensagens do WhatsApp
-@app.route("/webhook", methods=["POST"])
+@app.route("/", methods=["POST"])
 def webhook():
+    """Recebe mensagens do WhatsApp e responde com IA."""
     data = request.get_json()
-    
-    # Verificando se há mensagem recebida
-    if data and "entry" in data:
-        for entry in data["entry"]:
-            for change in entry["changes"]:
-                if "messages" in change["value"]:
-                    message = change["value"]["messages"][0]
-                    sender_id = message["from"]
-                    text = message.get("text", {}).get("body", "")
+    print(data)  # Log para ver o que chega do WhatsApp
 
-                    # Gerando resposta com ChatGPT
-                    response_text = chatgpt_response(text)
+    if "messages" in data["entry"][0]["changes"][0]["value"]:
+        message = data["entry"][0]["changes"][0]["value"]["messages"][0]
+        phone_number = message["from"]
+        text = message["text"]["body"]
 
-                    # Enviando resposta pelo WhatsApp
-                    send_whatsapp_message(sender_id, response_text)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": text}]
+        )
 
-    return "Mensagem recebida", 200
+        reply = response["choices"][0]["message"]["content"]
 
-# Função para gerar resposta com ChatGPT
-def chatgpt_response(user_message):
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-    data = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": user_message}]}
-    response = requests.post("https://api.openai.com/v1/chat/completions", json=data, headers=headers)
-    
-    return response.json()["choices"][0]["message"]["content"]
+        return jsonify({"status": "Mensagem processada", "resposta": reply})
 
-# Função para enviar resposta pelo WhatsApp
-def send_whatsapp_message(to, message):
-    url = "https://graph.facebook.com/v17.0/me/messages"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
+    return jsonify({"status": "Evento ignorado"})
 
-    requests.post(url, json=data, headers=headers)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
