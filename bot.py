@@ -1,36 +1,23 @@
-import os
-import openai
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Configurar a API Key do OpenAI (será definida no Render)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Seu token de verificação
+VERIFY_TOKEN = "chatbot-whatsapp"
 
 @app.route("/", methods=["GET"])
-def verificar():
-    """Rota para verificar se o servidor está rodando."""
-    return "Chatbot rodando!", 200
+def verify():
+    """Endpoint para verificação do webhook do Meta."""
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Recebe mensagens do WhatsApp e responde usando OpenAI."""
-    data = request.json
-    if data and "messages" in data:
-        for message in data["messages"]:
-            if message.get("type") == "text":
-                texto_recebido = message["text"]["body"]
-                resposta = processar_mensagem(texto_recebido)
-                return jsonify({"reply": resposta})
-    return jsonify({"status": "ok"}), 200
-
-def processar_mensagem(mensagem):
-    """Processa a mensagem usando OpenAI e retorna a resposta."""
-    resposta = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": mensagem}]
-    )
-    return resposta["choices"][0]["message"]["content"]
+    if mode and token:
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            return challenge, 200
+        else:
+            return "Erro de verificação", 403
+    return "Método não permitido", 400
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
